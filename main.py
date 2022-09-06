@@ -1,6 +1,6 @@
 import re
 from itertools import zip_longest
-from utils import readfile, writefile, Book, Library
+from utils import readfile, writefile, Book, Library, ParsingError, SkipParsing
 import sys
 
 
@@ -43,8 +43,15 @@ def parse_year(text_raw, year=None):
     text_data = re.sub(pattern_sub, '', text_data)
     text_data = re.sub(pattern, '', text_data)
     books_text = [el.strip() for el in text_data.split('\n\n') if el != '']
-    books = [parse_book(el, year) for el in books_text]
-    books = [el for el in books if isinstance(el, Book)]
+    books = []
+    for text in books_text:
+        try:
+            book = parse_book(text, year)
+            books.append(book)
+        except SkipParsing:
+            pass
+        except ParsingError:
+            print("Error in: '{}'".format(text))
     return books
 
 
@@ -52,36 +59,17 @@ def find_occurrences(target, text):
     pass
 
 
-
 def parse_book(text_raw, year=None):
-    text_lines = []
-    text_raw_lines = text_raw.split('\n')
-    pattern = r'(\D+\s+)(\d+\w?)'
-    search = re.search(pattern, text_raw_lines[0])
-    if search is None:
-        print("Error in:", text_raw)
-        return "Error"
-    text_lines.append(search.groups()[0].strip())
-    gutid = search.groups()[1]  
-    text_lines.extend(text_raw_lines[1:])
-    column1 = ' '.join(text_lines)
-    attrs = parse_elements(column1)
-    return Book(gutid=gutid, gutyear=year, **attrs)
-
-
-# WORK IN PROGRESS. PROBLEM TRYING TO SOLVE: TITLE OVER MULTIPLE LINES (ex. 40233)
-def parse_book(text_raw, year=None):
+    if all(char == '=' for char in text_raw):
+        raise SkipParsing
     text_lines = text_raw.split('\n')
     pattern = r'\s?(.+\S+)\s+(\d+\w?)'
     for i, line in enumerate(text_lines):
         search = re.search(pattern, line)
         if search:
             break
-        else:
-            print(i, line)
     else:
-        print("Error in:", text_raw)
-        return "Error"
+        raise ParsingError(text_raw)
     text_lines[i] = search.groups()[0]
     gutid = search.groups()[1]
     column1 = ' '.join(text_lines)
@@ -117,6 +105,11 @@ def parse_elements(line):
 text_example = readfile('data/example.txt')
 
 library = parse_gutindex(readfile('data/GUTINDEX.ALL'))
+
+authors = set()
+
+for book in library:
+    authors.add(book.author)
 
 #for year, text in years.items():
 #    writefile('data/years/year_{:0>2d}.txt'.format(year), text)

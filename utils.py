@@ -1,6 +1,7 @@
 import random
 from copy import deepcopy
 import requests
+import re
 
 def readfile(path):
     with open(path, 'r') as f:
@@ -10,6 +11,11 @@ def writefile(path, content):
     with open(path, 'w') as f:
         f.write(content)
 
+class ParsingError(Exception):
+    pass
+
+class SkipParsing(Exception):
+    pass
 
 class Library:
     def __init__(self, name):
@@ -22,6 +28,9 @@ class Library:
     def __iter__(self):
         return iter(self._library)
 
+    def __repr__(self):
+        return "Library containing {} books.".format(self.__len__())
+
 
     def add(self, book):
         assert isinstance(book, Book)
@@ -29,7 +38,7 @@ class Library:
 
     def browse(self, language=None, **kwargs):
         kwargs.update(language=language)
-        findings = set()
+        findings = Library('Findings')
         for book in self._library:
             if book.check(**kwargs):
                 findings.add(book)
@@ -50,13 +59,23 @@ class Library:
             return result[0]
         else:
             return result
+
+
+    def peek(self, n=10):
+        pick = self.pick(n=n)
+        for i, book in enumerate(pick):
+            print("{:>2d}: {}".format(i+1, book))
     
 
 
 
 class Book:
 
-    CHECK_DEFAULTS_EQUAL = {'author': False, 'subtitle': False}
+    CHECK_DEFAULTS_EQUAL = {'title': False, 'author': False, 'subtitle': False}
+    URL_PATTERNS = [
+        "https://www.gutenberg.org/files/{0}/{0}-0.txt",
+        "https://www.gutenberg.org/cache/epub/{0}/pg{0}.txt",
+    ]
 
     def __init__(self, title = '', author = '', gutid = None, gutyear = None, **kwargs):
         self.title = title
@@ -79,19 +98,27 @@ class Book:
 
     @property
     def url(self):
-        return "https://www.gutenberg.org/files/{0}/{0}-0.txt".format(self.gutid)
-
-
+        return [el.format(self.gutid) for el in self.URL_PATTERNS]
 
     def get_html(self):
         session = requests.Session()
         session.mount("http://", requests.adapters.HTTPAdapter(max_retries=2))
         session.mount("https://", requests.adapters.HTTPAdapter(max_retries=2))
-        response = session.get(self.url)
-        if response.status_code == 200:
-            return response.text
+
+        for url in self.url:
+            response = session.get(url)
+            if response.status_code == 200:
+                return response.text
         else:
-            raise Exception
+            raise requests.HTTPError
+
+
+    def get_text(self):
+        pattern = r'\*\*\*.*START.*\*\*\*(.*)\*\*\*.*END.*\*\*\*'
+        html = self.get_html()
+        search = re.search(pattern, html, flags=re.S)
+        book = search.groups()[0]
+        return book
         
 
     
